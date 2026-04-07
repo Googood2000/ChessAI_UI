@@ -2,7 +2,7 @@ import chess
 from typing import Tuple, Optional, Dict
 from functools import lru_cache
 
-# 棋子估值表
+# Chess Piece Valuation Table
 PIECE_VALUES = {
     chess.PAWN: 100,
     chess.KNIGHT: 320,
@@ -15,7 +15,7 @@ PIECE_VALUES = {
 # Transposition table: cache evaluated positions
 TRANSPOSITION_TABLE: Dict[int, Tuple[int, int, int]] = {}  # {zobrist_hash: (score, depth, flag)}
 
-# 位置估值表（中局）
+# Position Evaluation Table (Midgame)
 POSITION_WEIGHTS = {
     chess.PAWN: [
         0, 0, 0, 0, 0, 0, 0, 0,
@@ -122,7 +122,7 @@ def _score_move(board: chess.Board, move: chess.Move) -> int:
     try:
         # Prioritize captures
         if board.is_capture(move):
-            # 对于 en passant 和普通吃子都适用
+            # For en passant and regular captures
             captured_piece = board.piece_at(move.to_square)
             # For en passant, the captured pawn is on a different square
             if captured_piece is None and board.ep_square == move.to_square:
