@@ -12,7 +12,7 @@ PIECE_VALUES = {
     chess.KING: 20000
 }
 
-# 转置表：缓存已评估的棋位
+# Transposition table: cache evaluated positions
 TRANSPOSITION_TABLE: Dict[int, Tuple[int, int, int]] = {}  # {zobrist_hash: (score, depth, flag)}
 
 # 位置估值表（中局）
@@ -82,10 +82,10 @@ POSITION_WEIGHTS = {
 
 def evaluate_board(board: chess.Board) -> int:
     """
-    评估棋盘位置的价值（优化版）
-    正值表示白方更优，负值表示黑方更优
+    Evaluate board position (optimized).
+    Positive values favor White, negative values favor Black.
     """
-    # 检查游戏是否结束
+    # Check for terminal game state
     if board.is_checkmate():
         return -20000 if board.turn == chess.WHITE else 20000
     
@@ -94,17 +94,17 @@ def evaluate_board(board: chess.Board) -> int:
     
     score = 0
     
-    # 直接评估棋盘状态，避免遍历所有格子
-    # 使用棋盘的棋子列表而不是遍历所有64个方格
+    # Evaluate the board directly without scanning all 64 squares
+    # Use the board's piece lists instead of iterating over every square
     for piece_type in chess.PIECE_TYPES:
-        # 白方棋子
+        # White pieces
         white_pieces = board.pieces(piece_type, chess.WHITE)
         for square in white_pieces:
             piece_value = PIECE_VALUES[piece_type]
             position_bonus = POSITION_WEIGHTS[piece_type][square]
             score += piece_value + position_bonus
         
-        # 黑方棋子
+        # Black pieces
         black_pieces = board.pieces(piece_type, chess.BLACK)
         for square in black_pieces:
             piece_value = PIECE_VALUES[piece_type]
@@ -116,15 +116,15 @@ def evaluate_board(board: chess.Board) -> int:
 
 def _score_move(board: chess.Board, move: chess.Move) -> int:
     """
-    为着法评分，用于排序（MVV-LVA 启发式）
-    优先评估能吃子的着法，特别是用小子吃大子的着法
+    Score a move for ordering (MVV-LVA heuristic).
+    Prioritize capture moves, especially when a smaller piece captures a larger one.
     """
     try:
-        # 如果是吃子着法，优先考虑
+        # Prioritize captures
         if board.is_capture(move):
             # 对于 en passant 和普通吃子都适用
             captured_piece = board.piece_at(move.to_square)
-            # en passant 时被吃子在其他位置
+            # For en passant, the captured pawn is on a different square
             if captured_piece is None and board.ep_square == move.to_square:
                 captured_piece = board.piece_at(board.ep_square - 8 if board.turn == chess.WHITE else board.ep_square + 8)
             
@@ -132,22 +132,22 @@ def _score_move(board: chess.Board, move: chess.Move) -> int:
             
             if captured_piece and attacking_piece:
                 return PIECE_VALUES.get(captured_piece.piece_type, 0) * 100 - PIECE_VALUES.get(attacking_piece.piece_type, 0)
-            return 50  # 吃子着法基础分
+            return 50  # Base score for captures
         
-        # 如果是升变，给高分
+        # Give promotions a high score
         if move.promotion:
             return 1000 + PIECE_VALUES.get(move.promotion, 0)
         
-        # 其他着法给低分
+        # Assign low score to other moves
         return 0
     except:
-        # 安全处理，遇到异常返回 0
+        # Safe fallback: return 0 on exceptions
         return 0
 
 
 def _order_moves(board: chess.Board, moves: list) -> list:
     """
-    对着法进行排序（启发式排序以提高 Alpha-Beta 剪枝效率）
+    Order moves to improve Alpha-Beta pruning efficiency.
     """
     return sorted(moves, key=lambda m: _score_move(board, m), reverse=True)
 
@@ -161,43 +161,43 @@ def minimax_alpha_beta(
     max_depth: int = 4
 ) -> Tuple[int, Optional[chess.Move]]:
     """
-    Alpha-Beta 剪枝的 Minimax 算法（优化版本）
+    Optimized Minimax algorithm with Alpha-Beta pruning.
     
     Args:
-        board: 当前棋盘状态
-        depth: 当前搜索深度
-        alpha: Alpha 值（最大化者的最低保证值）
-        beta: Beta 值（最小化者的最高保证值）
-        is_maximizing: 是否是最大化层
-        max_depth: 最大搜索深度
+        board: current board state
+        depth: current search depth
+        alpha: alpha value (lower bound for maximizing side)
+        beta: beta value (upper bound for minimizing side)
+        is_maximizing: whether this is a maximizing node
+        max_depth: maximum search depth
     
     Returns:
-        (评估值, 最佳着法)
+        (evaluation score, best move)
     """
-    # 检查转置表（使用 FEN 哈希）
+    # Check the transposition table (using FEN hash)
     board_hash = hash(board.fen())
     if board_hash in TRANSPOSITION_TABLE:
         cached_score, cached_depth, cached_flag = TRANSPOSITION_TABLE[board_hash]
         if cached_depth >= depth:
             return cached_score, None
     
-    # 终止条件：达到最大深度或游戏结束
+    # Termination condition: reached max depth or game over
     if depth == 0 or board.is_game_over():
         return evaluate_board(board), None
     
     legal_moves = list(board.legal_moves)
     
-    # 如果没有合法着法
+    # If there are no legal moves
     if not legal_moves:
         return evaluate_board(board), None
     
-    # 对着法进行排序，以提高剪枝效率
+    # Order moves to improve pruning efficiency
     legal_moves = _order_moves(board, legal_moves)
     
     best_move = None
     
     if is_maximizing:
-        # 最大化层（白方）
+        # Maximizing layer (White)
         max_eval = float('-inf')
         for move in legal_moves:
             board.push(move)
@@ -212,13 +212,13 @@ def minimax_alpha_beta(
             
             alpha = max(alpha, eval_score)
             if beta <= alpha:
-                break  # Beta 剪枝
+                break  # Beta cutoff
         
-        # 存入转置表
+        # Store in transposition table
         TRANSPOSITION_TABLE[board_hash] = (max_eval, depth, 'exact')
         return max_eval, best_move
     else:
-        # 最小化层（黑方）
+        # Minimizing layer (Black)
         min_eval = float('inf')
         for move in legal_moves:
             board.push(move)
@@ -233,27 +233,27 @@ def minimax_alpha_beta(
             
             beta = min(beta, eval_score)
             if beta <= alpha:
-                break  # Alpha 剪枝
+                break  # Alpha cutoff
         
-        # 存入转置表
+        # Store in transposition table
         TRANSPOSITION_TABLE[board_hash] = (min_eval, depth, 'exact')
         return min_eval, best_move
 
 
 def get_best_move(board: chess.Board, depth: int = 4, clear_cache: bool = False) -> Optional[chess.Move]:
     """
-    获取当前棋盘位置的最佳着法
-    使用 Alpha-Beta 剪枝的 Minimax 算法（优化版）
+    Get the best move for the current board position.
+    Uses an optimized Minimax algorithm with Alpha-Beta pruning.
     
     Args:
-        board: 当前棋盘状态
-        depth: 搜索深度（默认为 4，越深越强但速度越慢）
-        clear_cache: 是否清空转置表（默认不清空，可在新游戏时清空）
+        board: current board state
+        depth: search depth (default 4; deeper search is stronger but slower)
+        clear_cache: whether to clear the transposition table (default false)
     
     Returns:
-        最佳着法，如果没有合法着法则返回 None
+        best move, or None if no legal move exists
     """
-    # 清空转置表（可选，节省内存）
+    # Clear transposition table if requested
     if clear_cache:
         TRANSPOSITION_TABLE.clear()
     
@@ -262,7 +262,7 @@ def get_best_move(board: chess.Board, depth: int = 4, clear_cache: bool = False)
     if not legal_moves:
         return None
     
-    # 如果只有一个合法着法，直接返回
+    # If only one legal move exists, return it directly
     if len(legal_moves) == 1:
         return legal_moves[0]
     
@@ -270,7 +270,7 @@ def get_best_move(board: chess.Board, depth: int = 4, clear_cache: bool = False)
     alpha = float('-inf')
     beta = float('inf')
     
-    # 根据当前着法者确定是最大化还是最小化
+    # Determine whether this is a maximizing or minimizing position based on current turn
     is_maximizing = (board.turn == chess.WHITE)
     
     _, best_move = minimax_alpha_beta(

@@ -12,8 +12,8 @@ class ChessGUI:
         self.possible_moves = []
         self.player_color = None  # 'white' or 'black'
         self.ai_color = None
-        self.flipped = True  # 默认上下翻转
-        self.horizontal_flipped = False  # 新增左右翻转
+        self.flipped = True  # Default vertical flip
+        self.horizontal_flipped = False  # Added horizontal flip
         self.move_history = []
         self.current_move_index = -1
         self.font = pygame.font.SysFont(None, 24)
@@ -93,8 +93,8 @@ class ChessGUI:
         buttons = [
             ("Undo", 500, 100),
             ("Redo", 500, 150),
-            ("上下翻转", 500, 200),
-            ("左右翻转", 500, 250),
+            ("Flip Vertical", 500, 200),
+            ("Flip Horizontal", 500, 250),
             ("Select White", 500, 300),
             ("Select Black", 500, 350)
         ]
@@ -204,12 +204,12 @@ class ChessGUI:
                     self.current_move_index += 1
                     self.board.push(self.move_history[self.current_move_index])
                     self.message = ""
-            elif 200 <= pos[1] <= 240:  # 上下翻转
+            elif 200 <= pos[1] <= 240:  # Vertical flip
                 self.flipped = not self.flipped
-                self.message = "棋盘已上下翻转" if self.flipped else "棋盘已恢复上下正常"
-            elif 250 <= pos[1] <= 290:  # 左右翻转
+                self.message = "Board flipped vertically" if self.flipped else "Board vertical orientation restored"
+            elif 250 <= pos[1] <= 290:  # Horizontal flip
                 self.horizontal_flipped = not self.horizontal_flipped
-                self.message = "棋盘已左右翻转" if self.horizontal_flipped else "棋盘已恢复左右正常"
+                self.message = "Board flipped horizontally" if self.horizontal_flipped else "Board horizontal orientation restored"
             elif 300 <= pos[1] <= 340:  # Select White
                 self.player_color = 'white'
                 self.ai_color = 'black'
