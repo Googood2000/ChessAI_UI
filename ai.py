@@ -80,39 +80,100 @@ POSITION_WEIGHTS = {
 }
 
 
-def evaluate_board(board: chess.Board) -> int:
-    """
-    Evaluate board position (optimized).
-    Positive values favor White, negative values favor Black.
-    """
-    # Check for terminal game state
-    if board.is_checkmate():
-        return -20000 if board.turn == chess.WHITE else 20000
+# def evaluate_board(board: chess.Board) -> int:
+#     """
+#     Evaluate board position (optimized).
+#     Positive values favor White, negative values favor Black.
+#     """
+#     # Check for terminal game state
+#     if board.is_checkmate():
+#         return -20000 if board.turn == chess.WHITE else 20000
     
-    if board.is_stalemate() or board.is_insufficient_material():
-        return 0
+#     if board.is_stalemate() or board.is_insufficient_material():
+#         return 0
     
-    score = 0
+#     score = 0
     
-    # Evaluate the board directly without scanning all 64 squares
-    # Use the board's piece lists instead of iterating over every square
-    for piece_type in chess.PIECE_TYPES:
-        # White pieces
-        white_pieces = board.pieces(piece_type, chess.WHITE)
-        for square in white_pieces:
-            piece_value = PIECE_VALUES[piece_type]
-            position_bonus = POSITION_WEIGHTS[piece_type][square]
-            score += piece_value + position_bonus
+#     # Evaluate the board directly without scanning all 64 squares
+#     # Use the board's piece lists instead of iterating over every square
+#     for piece_type in chess.PIECE_TYPES:
+#         # White pieces
+#         white_pieces = board.pieces(piece_type, chess.WHITE)
+#         for square in white_pieces:
+#             piece_value = PIECE_VALUES[piece_type]
+#             position_bonus = POSITION_WEIGHTS[piece_type][square]
+#             score += piece_value + position_bonus
         
-        # Black pieces
-        black_pieces = board.pieces(piece_type, chess.BLACK)
-        for square in black_pieces:
-            piece_value = PIECE_VALUES[piece_type]
-            position_bonus = POSITION_WEIGHTS[piece_type][square]
-            score -= piece_value + position_bonus
+#         # Black pieces
+#         black_pieces = board.pieces(piece_type, chess.BLACK)
+#         for square in black_pieces:
+#             piece_value = PIECE_VALUES[piece_type]
+#             position_bonus = POSITION_WEIGHTS[piece_type][square]
+#             score -= piece_value + position_bonus
     
-    return score
+#     return score
 
+# Endgame Position Evaluation Table for the King
+KING_ENDGAME = [
+    -50, -40, -30, -20, -20, -30, -40, -50,
+    -30, -20, -10,   0,   0, -10, -20, -30,
+    -30, -10,  20,  30,  30,  20, -10, -30,
+    -30, -10,  30,  40,  40,  30, -10, -30,
+    -30, -10,  30,  40,  40,  30, -10, -30,
+    -30, -10,  20,  30,  30,  20, -10, -30,
+    -30, -30,   0,   0,   0,   0, -30, -30,
+    -50, -30, -30, -30, -30, -30, -30, -50
+]
+
+# is_endgame function to determine if the game is in the endgame phase
+def is_endgame(board: chess.Board) -> bool:
+    # Simple heuristic: if both sides have no queens or only one minor piece left, it's likely endgame
+    white_queens = len(board.pieces(chess.QUEEN, chess.WHITE))
+    black_queens = len(board.pieces(chess.QUEEN, chess.BLACK))
+    
+    white_minor_pieces = len(board.pieces(chess.BISHOP, chess.WHITE)) + len(board.pieces(chess.KNIGHT, chess.WHITE))
+    black_minor_pieces = len(board.pieces(chess.BISHOP, chess.BLACK)) + len(board.pieces(chess.KNIGHT, chess.BLACK))
+    
+    return (white_queens == 0 and black_queens == 0) or (white_queens == 0 and white_minor_pieces <= 1) or (black_queens == 0 and black_minor_pieces <= 1)
+
+def evaluate_board(board: chess.Board) -> int:
+    if board.is_checkmate():
+        return -30000 if board.turn == chess.WHITE else 30000
+    
+    # Improvement: If you're the stronger side, forcing a draw is a punishment; if you're the weaker side, forcing a draw is a reward.
+    if board.is_stalemate() or board.is_insufficient_material():
+        # Get the current subforce difference (material balance)
+        material_balance = 0
+        for pt, val in PIECE_VALUES.items():
+            material_balance += len(board.pieces(pt, chess.WHITE)) * val
+            material_balance -= len(board.pieces(pt, chess.BLACK)) * val
+        
+        # If the material balance is heavily in favor of one side, a draw is a significant loss for that side and a significant gain for the other.
+        if material_balance > 200: return -500 # Significant advantage for White
+        if material_balance < -200: return 500 # Significant advantage for Black
+        return 0
+
+    score = 0
+    endgame = is_endgame(board)
+    
+    for piece_type in chess.PIECE_TYPES:
+        for color in [chess.WHITE, chess.BLACK]:
+            pieces = board.pieces(piece_type, color)
+            for square in pieces:
+                # 基础分
+                val = PIECE_VALUES[piece_type]
+                
+                # 位置分逻辑
+                if piece_type == chess.KING and endgame:
+                    pos_bonus = KING_ENDGAME[square if color == chess.WHITE else chess.square_mirror(square)]
+                else:
+                    pos_bonus = POSITION_WEIGHTS[piece_type][square if color == chess.WHITE else chess.square_mirror(square)]
+                
+                if color == chess.WHITE:
+                    score += (val + pos_bonus)
+                else:
+                    score -= (val + pos_bonus)
+    return score
 
 def _score_move(board: chess.Board, move: chess.Move) -> int:
     """
@@ -151,6 +212,34 @@ def _order_moves(board: chess.Board, moves: list) -> list:
     """
     return sorted(moves, key=lambda m: _score_move(board, m), reverse=True)
 
+# Zobrist hashing for transposition table (simplified version)
+def get_board_hash(board: chess.Board) -> int:
+    # A simple hash function combining key board attributes. In a production engine, you would use a more sophisticated Zobrist hashing with precomputed random numbers for each piece/square combination.
+    return hash(board.ep_square) ^ hash(board.castling_rights) ^ hash(board.occupied) ^ hash(board.turn)
+
+# Quiescence search to prevent "horizon effect" by continuing to evaluate capture moves at the leaf nodes of the search tree.
+def quiescence_search(board, alpha, beta, is_maximizing):
+    """Quiescence search to evaluate "quiet" positions and avoid the horizon effect."""
+    stand_pat = evaluate_board(board)
+    if is_maximizing:
+        if stand_pat >= beta: return beta
+        alpha = max(alpha, stand_pat)
+    else:
+        if stand_pat <= alpha: return alpha
+        beta = min(beta, stand_pat)
+
+    for move in board.legal_moves:
+        if board.is_capture(move):
+            board.push(move)
+            score = quiescence_search(board, alpha, beta, not is_maximizing)
+            board.pop()
+            if is_maximizing:
+                if score >= beta: return beta
+                alpha = max(alpha, score)
+            else:
+                if score <= alpha: return alpha
+                beta = min(beta, score)
+    return alpha if is_maximizing else beta
 
 def minimax_alpha_beta(
     board: chess.Board,
@@ -175,21 +264,20 @@ def minimax_alpha_beta(
         (evaluation score, best move)
     """
     # Check the transposition table (using FEN hash)
-    board_hash = hash(board.fen())
+    board_hash = get_board_hash(board)
     if board_hash in TRANSPOSITION_TABLE:
         cached_score, cached_depth, cached_flag = TRANSPOSITION_TABLE[board_hash]
         if cached_depth >= depth:
             return cached_score, None
-    
-    # Termination condition: reached max depth or game over
-    if depth == 0 or board.is_game_over():
-        return evaluate_board(board), None
-    
+
     legal_moves = list(board.legal_moves)
-    
-    # If there are no legal moves
-    if not legal_moves:
-        return evaluate_board(board), None
+
+    # Terminal node or maximum depth reached
+    if depth == 0:
+        eval_score = quiescence_search(board, alpha, beta, is_maximizing)
+        # Store in transposition table as a leaf node
+        TRANSPOSITION_TABLE[board_hash] = (eval_score, depth, 'exact')
+        return eval_score, None
     
     # Order moves to improve pruning efficiency
     legal_moves = _order_moves(board, legal_moves)
