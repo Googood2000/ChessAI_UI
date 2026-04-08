@@ -160,10 +160,10 @@ def evaluate_board(board: chess.Board) -> int:
         for color in [chess.WHITE, chess.BLACK]:
             pieces = board.pieces(piece_type, color)
             for square in pieces:
-                # 基础分
+                # Material score
                 val = PIECE_VALUES[piece_type]
                 
-                # 位置分逻辑
+                # Positional score (use endgame table for kings if in endgame)
                 if piece_type == chess.KING and endgame:
                     pos_bonus = KING_ENDGAME[square if color == chess.WHITE else chess.square_mirror(square)]
                 else:
